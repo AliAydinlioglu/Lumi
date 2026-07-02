@@ -3,74 +3,35 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, useAnimation, useTransform, MotionValue, useSpring, useMotionValueEvent } from 'framer-motion';
 
-// Custom Hook: Calculates 3D tilt based on the element's ABSOLUTE physical distance from the center of the screen
-function useAbsoluteTilt(x: MotionValue<number>, y: MotionValue<number>, ref: React.RefObject<HTMLElement>) {
-  const [initialOffset, setInitialOffset] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    if (!ref.current) return;
-    
-    const calculateOffset = () => {
-      if (!ref.current) return;
-      const rect = ref.current.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      setInitialOffset({
-        x: centerX - window.innerWidth / 2,
-        y: centerY - window.innerHeight / 2
-      });
-    };
-
-    calculateOffset();
-    
-    // Slight delay to ensure layout is settled before calculating bounding box
-    setTimeout(calculateOffset, 50);
-    
-    window.addEventListener('resize', calculateOffset);
-    return () => window.removeEventListener('resize', calculateOffset);
-  }, [ref]);
-
-  // Absolute X and Y position from the center of the screen
-  const absoluteX = useTransform(x, (latestX) => latestX + initialOffset.x);
-  const absoluteY = useTransform(y, (latestY) => latestY + initialOffset.y);
-  
-  // Softer tilt math
-  const rotateX = useTransform(absoluteY, [-500, 500], [8, -8]);
-  const rotateY = useTransform(absoluteX, [-500, 500], [-8, 8]);
-
-  return { rotateX, rotateY };
-}
-
 // Shared sleek styling
 const glassmorphismStyle = {
   background: 'rgba(255, 255, 255, 0.15)', // Translucent glossy white
   backdropFilter: 'blur(4px)', // Frosted glass effect
   WebkitBackdropFilter: 'blur(4px)',
   border: '2px solid rgba(245, 237, 237, 1)', // Shiny edge
-  borderRadius: '12px', // Sleek rounded corners
+  borderRadius: '5px', // Sleek rounded corners
   boxShadow: '0 20px 40px -10px rgba(255, 255, 255, 0.13), inset 0 1px 0 rgba(255, 255, 255, 1)', // Subtle light glow and inner rim
   color: '#ffffff', // Need white text since background is translucent on black
 };
 
 // Sub-component for translated words so they each get their own physics
-const TranslatedWordBox = ({ lang, translation, containerRef, index }: { lang: string, translation: string, containerRef: React.RefObject<HTMLDivElement>, index: number }) => {
+const TranslatedWordBox = ({ lang, translation, containerRef, index, registerRef }: { lang: string, translation: string, containerRef: React.RefObject<HTMLDivElement>, index: number, registerRef: (el: HTMLDivElement | null, idx: number) => void }) => {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const controls = useAnimation();
   const boxRef = useRef<HTMLDivElement>(null);
-
-  // Tilt based on absolute distance from the screen center
-  const { rotateX, rotateY } = useAbsoluteTilt(x, y, boxRef);
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 30, scale: 0.9 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.4, delay: index * 0.1 + 0.1 }}
-      style={{ transformStyle: 'preserve-3d' }} // Cascade 3D space
     >
       <motion.div
-        ref={boxRef}
+        ref={(el) => {
+          boxRef.current = el;
+          registerRef(el, index);
+        }}
         drag
         dragConstraints={containerRef}
         dragElastic={0.6}
@@ -79,8 +40,7 @@ const TranslatedWordBox = ({ lang, translation, containerRef, index }: { lang: s
           controls.start({ y: 0, transition: { type: 'spring', stiffness: 400, damping: 12 } });
         }}
         style={{
-          x, y, rotateX, rotateY, cursor: 'grab',
-          z: 30, // Pops it out in 3D space like the option menu!
+          x, y, cursor: 'grab',
           ...glassmorphismStyle,
           padding: '1.2rem 1.5rem',
           display: 'flex',
@@ -88,8 +48,7 @@ const TranslatedWordBox = ({ lang, translation, containerRef, index }: { lang: s
           alignItems: 'flex-start',
           gap: '0.5rem',
           minWidth: '200px', 
-          minHeight: '90px',
-          transformStyle: 'preserve-3d'
+          minHeight: '90px'
         }}
         animate={controls}
       >
@@ -101,6 +60,68 @@ const TranslatedWordBox = ({ lang, translation, containerRef, index }: { lang: s
         </span>
       </motion.div>
     </motion.div>
+  );
+};
+
+import { useAnimationFrame } from 'framer-motion';
+
+// The highly performant dynamic SVG ray system!
+const PrismRays = ({ mainRef, targetRefs, count }: { mainRef: React.RefObject<HTMLDivElement>, targetRefs: React.MutableRefObject<(HTMLDivElement | null)[]>, count: number }) => {
+  const svgRef = useRef<SVGSVGElement>(null);
+  
+  useAnimationFrame(() => {
+     if (!svgRef.current || !mainRef.current) return;
+     const mainRect = mainRef.current.getBoundingClientRect();
+     // Calculate top point (bottom center of main terminal)
+     const topX = mainRect.left + mainRect.width / 2;
+     // Slight overlap so the ray seems to come from INSIDE the terminal glass
+     const topY = mainRect.bottom; 
+     
+     const polygons = svgRef.current.querySelectorAll('polygon');
+     
+     for (let index = 0; index < count; index++) {
+        const target = targetRefs.current[index];
+        const poly = polygons[index];
+        if (!target || !poly) continue;
+        
+        const targetRect = target.getBoundingClientRect();
+        // Base of the triangle is the top edge of the translated terminal
+        const p1 = `${topX},${topY}`;
+        const p2 = `${targetRect.right},${targetRect.top}`;
+        const p3 = `${targetRect.left},${targetRect.top}`;
+        
+        // This mutates the DOM directly without triggering React renders, ensuring buttery smooth 120fps tracking!
+        poly.setAttribute('points', `${p1} ${p2} ${p3}`);
+     }
+  });
+
+  return (
+    <svg 
+      ref={svgRef}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        borderRadius: '20',
+        pointerEvents: 'none',
+        zIndex: 0,
+        filter: 'blur(1px)', // Softens the edges of the light rays to make it feel like real scattered light!
+      }}
+    >
+       {Array.from({ length: count }).map((_, index) => {
+          // We start at 0 (Red) and map the HSL spectrum across the number of targets. 
+          const hue = count === 1 ? 200 : (360 / count) * index;
+          return (
+             <polygon
+                key={index}
+                fill={`hsla(${hue}, 100%, 50%, 0.35)`} // Vibrant translucent spectrum
+                style={{ mixBlendMode: 'screen' }} // Makes the overlapping rays glow beautifully
+             />
+          );
+       })}
+    </svg>
   );
 };
 
@@ -126,12 +147,12 @@ export default function TranslationScreen() {
   const controls = useAnimation();
   const mainBoxRef = useRef<HTMLDivElement>(null);
 
-  // Tilt based on absolute distance from the screen center
-  const { rotateX, rotateY } = useAbsoluteTilt(x, y, mainBoxRef);
-
   // Constraints ref to prevent dragging off-screen
   const containerRef = useRef<HTMLDivElement>(null);
   
+  // Array of refs pointing to the translated boxes so the Prism can track them
+  const translatedRefs = useRef<(HTMLDivElement | null)[]>([]);
+
   // Ref for clicking outside the language menu
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -175,8 +196,6 @@ export default function TranslationScreen() {
     controls.start({
       x: 0,
       y: 0,
-      rotateX: 0,
-      rotateY: 0,
       width: 'auto',
       transition: { type: 'spring', stiffness: 300, damping: 20 }
     });
@@ -213,12 +232,23 @@ export default function TranslationScreen() {
 
   return (
     // Removed overflow: 'hidden' so dragged items don't vanish behind black borders!
-    <div ref={containerRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', perspective: 1200 }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
       
+      {/* ------------------------------------------------------------------------------------------------- */}
+      {/* PRISM LIGHT RAYS - SITS BEHIND ALL TERMINALS */}
+      {/* ------------------------------------------------------------------------------------------------- */}
+      {translations && Object.keys(translations).length > 0 && (
+        <PrismRays 
+          mainRef={mainBoxRef} 
+          targetRefs={translatedRefs} 
+          count={Object.keys(translations).length} 
+        />
+      )}
+
       {/* ------------------------------------------------------------------------------------------------- */}
       {/* FLOWER MENU: TOP RIGHT GLOBE TARGET SELECTOR */}
       {/* ------------------------------------------------------------------------------------------------- */}
-      <motion.div style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 100, x: globeXSpring, opacity: globeOpacitySpring }}>
+      <motion.div style={{ position: 'absolute', top: '3rem', right: '3rem', zIndex: 100, x: globeXSpring, opacity: globeOpacitySpring }}>
         {/* The petals (languages) */}
         <AnimatePresence>
           {isFlowerMenuOpen && availableLanguages.filter(l => l !== sourceLanguage).map((lang, idx, arr) => {
@@ -302,7 +332,7 @@ export default function TranslationScreen() {
         </motion.div>
       </motion.div>
 
-      <div style={{ margin: 'auto', display: 'flex', justifyContent: 'center', zIndex: 10, transformStyle: 'preserve-3d' }}>
+      <div style={{ margin: 'auto', display: 'flex', justifyContent: 'center', zIndex: 10 }}>
         {/* Main Draggable Terminal Panel */}
         <motion.div
           ref={mainBoxRef}
@@ -316,10 +346,7 @@ export default function TranslationScreen() {
           style={{ 
             x, 
             y,
-            rotateX,
-            rotateY,
             cursor: 'grab',
-            transformStyle: 'preserve-3d', // Ensures children stay in 3D space
             overflow: 'visible',
             minWidth: '300px',
             maxWidth: '60vw',
@@ -367,9 +394,7 @@ export default function TranslationScreen() {
                       padding: '0.3rem',
                       display: 'flex',
                       flexDirection: 'row',
-                      zIndex: 50,
-                      transform: 'translateZ(30px)', 
-                      transformStyle: 'preserve-3d'
+                      zIndex: 50
                     }}
                   >
                     {availableLanguages.map(lang => (
@@ -476,12 +501,14 @@ export default function TranslationScreen() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             style={{
-              padding: '2rem',
+              width: '80vw', // Forces the container to occupy 80% of screen width
+              marginTop: '35rem', // Pushes the container to the absolute bottom of the screen
+              marginLeft: 'auto', // Centers horizontally
+              marginRight: 'auto', // Centers horizontally
               display: 'flex',
-              gap: '2rem',
               flexWrap: 'wrap',
-              justifyContent: 'center',
-              transformStyle: 'preserve-3d'
+              justifyContent: 'center', // Group them directly in the center
+              gap: '0' // Remove the gap between them so they touch
             }}
           >
             {Object.keys(translations).map((lang, index) => (
@@ -490,7 +517,8 @@ export default function TranslationScreen() {
                 lang={lang} 
                 translation={translations[lang]} 
                 containerRef={containerRef} 
-                index={index} 
+                index={index}
+                registerRef={(el, idx) => { translatedRefs.current[idx] = el; }} 
               />
             ))}
           </motion.div>
