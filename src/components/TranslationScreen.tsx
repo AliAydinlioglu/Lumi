@@ -104,7 +104,7 @@ const PrismRays = ({ mainRef, targetRefs, count }: { mainRef: React.RefObject<HT
         left: 0,
         width: '100vw',
         height: '100vh',
-        borderRadius: '20',
+        borderRadius: '30',
         pointerEvents: 'none',
         zIndex: 0,
         filter: 'blur(1px)', // Softens the edges of the light rays to make it feel like real scattered light!
@@ -140,6 +140,7 @@ export default function TranslationScreen() {
 
   const [isTranslating, setIsTranslating] = useState(false);
   const [translations, setTranslations] = useState<{ [key: string]: string } | null>(null);
+  const [translateCounter, setTranslateCounter] = useState(0);
 
   // Motion values for the main draggable terminal
   const x = useMotionValue(0);
@@ -218,6 +219,7 @@ export default function TranslationScreen() {
       
       if (data.success) {
         setTranslations(data.translations);
+        setTranslateCounter(c => c + 1);
       } else {
         console.error('Translation failed:', data.error);
         alert('Translation failed. Please try again.');
@@ -513,7 +515,7 @@ export default function TranslationScreen() {
           >
             {Object.keys(translations).map((lang, index) => (
               <TranslatedWordBox 
-                key={lang} 
+                key={`${lang}-${translateCounter}`} 
                 lang={lang} 
                 translation={translations[lang]} 
                 containerRef={containerRef} 
