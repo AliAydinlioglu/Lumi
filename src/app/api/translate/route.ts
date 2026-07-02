@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { db } from '@/db';
 import { words, translations, languages } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
@@ -18,11 +18,53 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Gemini API Key is not configured' }, { status: 500 });
     }
 
+    const searchWord = word.trim().toLowerCase();
+
+    // 1. Check if the word already exists in the database
+    const existingWord = await db.query.words.findFirst({
+      where: (words, { eq, and }) => and(
+        eq(words.text, searchWord),
+        eq(words.sourceLanguage, sourceLanguage)
+      ),
+      with: {
+        translations: true
+      }
+    });
+
+    if (existingWord) {
+      // Check if we have ALL the requested target languages cached
+      const existingLanguages = existingWord.translations.map(t => t.languageCode);
+      const missingLanguages = targetLanguages.filter(lang => !existingLanguages.includes(lang));
+
+      if (missingLanguages.length === 0) {
+        // Full cache hit! Return instantly
+        const responseTranslations: { [key: string]: string } = {};
+        existingWord.translations.forEach(t => {
+          if (targetLanguages.includes(t.languageCode)) {
+            responseTranslations[t.languageCode] = t.translatedText;
+          }
+        });
+
+        console.log(`Cache hit for "${searchWord}"! Skipping Gemini API.`);
+        return NextResponse.json({
+          success: true,
+          word: existingWord,
+          translations: responseTranslations,
+          cached: true
+        });
+      }
+      
+      // If we are missing languages, we will continue and ask Gemini for them
+      console.log(`Partial cache hit for "${searchWord}". Missing: ${missingLanguages.join(', ')}. Querying Gemini...`);
+    } else {
+      console.log(`Cache miss for "${searchWord}". Querying Gemini...`);
+    }
+
+    // 2. Query Gemini
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    // Construct a strict prompt for JSON output
     const prompt = `
-      Translate the word "${word}" from ${sourceLanguage} to the following languages: ${targetLanguages.join(', ')}.
+      Translate the word "${searchWord}" from ${sourceLanguage} to the following languages: ${targetLanguages.join(', ')}.
       
       Respond STRICTLY in JSON format. Do not include any markdown formatting, just the raw JSON object.
       The structure must be:
@@ -46,38 +88,44 @@ export async function POST(req: Request) {
     
     // Clean up potential markdown formatting from Gemini
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-
     const parsedResponse = JSON.parse(text);
 
-    // Save to database
-    // 1. Insert the source word
-    const [insertedWord] = await db.insert(words).values({
-      text: word.toLowerCase(),
-      sourceLanguage: sourceLanguage,
-    }).returning();
-
-    // 2. Ensure languages exist in the database before inserting translations
+    // 3. Ensure languages exist in the database before inserting
     const languageEntries = [
       { code: sourceLanguage, name: sourceLanguage.toUpperCase() },
       ...targetLanguages.map((langCode: string) => ({ code: langCode, name: langCode.toUpperCase() }))
     ];
-    
-    // In Drizzle for postgres, we use onConflictDoNothing for simple upserts where we just want it to exist
     await db.insert(languages).values(languageEntries).onConflictDoNothing();
 
-    // 3. Insert the translations
-    const translationEntries = targetLanguages.map((langCode: string) => ({
-      wordId: insertedWord.id,
-      languageCode: langCode,
-      translatedText: parsedResponse.translations[langCode].toLowerCase(),
-    }));
+    // 4. Save/Update to database
+    let currentWord = existingWord;
 
-    await db.insert(translations).values(translationEntries);
+    if (!currentWord) {
+      const [inserted] = await db.insert(words).values({
+        text: searchWord,
+        sourceLanguage: sourceLanguage,
+      }).returning();
+      currentWord = { ...inserted, translations: [] }; // Mock the translations array for logic below
+    }
+
+    // Insert only the missing translations to prevent duplicates
+    const newTranslationEntries = targetLanguages
+      .filter((langCode: string) => !currentWord?.translations.some(t => t.languageCode === langCode))
+      .map((langCode: string) => ({
+        wordId: currentWord!.id,
+        languageCode: langCode,
+        translatedText: parsedResponse.translations[langCode].toLowerCase(),
+      }));
+
+    if (newTranslationEntries.length > 0) {
+      await db.insert(translations).values(newTranslationEntries);
+    }
 
     return NextResponse.json({ 
       success: true, 
-      word: insertedWord,
-      translations: parsedResponse.translations 
+      word: currentWord,
+      translations: parsedResponse.translations,
+      cached: false
     });
 
   } catch (error: any) {
