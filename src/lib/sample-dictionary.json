@@ -1,0 +1,22 @@
+[
+  { "English": "hello", "Dutch": "hallo", "Turkish": "merhaba" },
+  { "English": "world", "Dutch": "wereld", "Turkish": "dünya" },
+  { "English": "water", "Dutch": "water", "Turkish": "su" },
+  { "English": "dog", "Dutch": "hond", "Turkish": "köpek" },
+  { "English": "cat", "Dutch": "kat", "Turkish": "kedi" },
+  { "English": "house", "Dutch": "huis", "Turkish": "ev" },
+  { "English": "tree", "Dutch": "boom", "Turkish": "ağaç" },
+  { "English": "car", "Dutch": "auto", "Turkish": "araba" },
+  { "English": "computer", "Dutch": "computer", "Turkish": "bilgisayar" },
+  { "English": "book", "Dutch": "boek", "Turkish": "kitap" },
+  { "English": "good", "Dutch": "goed", "Turkish": "iyi" },
+  { "English": "bad", "Dutch": "slecht", "Turkish": "kötü" },
+  { "English": "sun", "Dutch": "zon", "Turkish": "güneş" },
+  { "English": "moon", "Dutch": "maan", "Turkish": "ay" },
+  { "English": "food", "Dutch": "eten", "Turkish": "yemek" },
+  { "English": "yes", "Dutch": "ja", "Turkish": "evet" },
+  { "English": "no", "Dutch": "nee", "Turkish": "hayır" },
+  { "English": "thank you", "Dutch": "dank je", "Turkish": "teşekkür ederim" },
+  { "English": "please", "Dutch": "alsjeblieft", "Turkish": "lütfen" },
+  { "English": "friend", "Dutch": "vriend", "Turkish": "arkadaş" }
+]
