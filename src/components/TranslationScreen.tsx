@@ -164,15 +164,34 @@ export default function TranslationScreen() {
   const globeOpacitySpring = useSpring(globeOpacityTarget, { stiffness: 300, damping: 30 });
 
   const updateGlobeVisibility = () => {
+    if (typeof window === 'undefined') return;
+
     const currentX = x.get();
     const currentY = y.get();
-    // Terminal moving right (X > 100) and moving up (Y < 100) puts it in the top right quadrant
-    if (currentX > 600 && currentY < 120) {
+    
+    // The terminal is centered by default, so its absolute position is center + drag offset
+    const absoluteX = (window.innerWidth / 2) + currentX;
+    const absoluteY = (window.innerHeight / 2) + currentY;
+    
+    // Terminal moving into the top-right corner (Globe button area)
+    if (absoluteX > window.innerWidth * 0.8 && absoluteY < window.innerHeight * 0.7) {
       globeXTarget.set(150); // Push off screen to the right
       globeOpacityTarget.set(0); // Fade out
     } else {
       globeXTarget.set(0);
       globeOpacityTarget.set(1);
+    }
+
+    // Terminal moving into the top-left corner (Hamburger button area)
+    const navButton = document.getElementById('hamburger-btn');
+    if (navButton) {
+      if (absoluteX < window.innerWidth * 0.2 && absoluteY < window.innerHeight * 0.7) {
+        navButton.style.transform = 'translateX(-100px)';
+        navButton.style.opacity = '0';
+      } else {
+        navButton.style.transform = 'translateX(0)';
+        navButton.style.opacity = '1';
+      }
     }
   };
 
